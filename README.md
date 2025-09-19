@@ -23,7 +23,7 @@ Digital Alexandria is an open-source initiative to design a next-generation arch
 - Calculate logical vs. physical size, compression ratios, and dedupe effectiveness.
 - Export per-block CSV for downstream analysis or visualization.
 
-### Phase 3 — Integration & Archival Pipeline
+### Future Phase — Integration & Archival Pipeline
 - Combine prepared blocks and recipes into a scalable archival system.
 - Integrate with storage backends (object stores, tape HSM, or experimental DNA/protein media).
 - Provide monitoring, reporting, and APIs for long-term preservation and retrieval.
