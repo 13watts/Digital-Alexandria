@@ -1,0 +1,155 @@
+.\" Manpage for da_dataset_prep
+.TH DA_DATASET_PREP 1 "September 2025" "Digital Alexandria Tools" "User Commands"
+.SH NAME
+da_dataset_prep \- dataset preparation phase for Digital Alexandria prototype
+.SH SYNOPSIS
+.B da_dataset_prep.py
+[\fB--input-root\fR \fIPATH\fR]
+[\fB--blocks-root\fR \fIPATH\fR]
+[\fB--qrcode-root\fR \fIPATH\fR]
+[\fB--dna-root\fR \fIPATH\fR]
+[\fB--protein-root\fR \fIPATH\fR]
+[\fB--recipe-root\fR \fIPATH\fR]
+[\fB--log-dir\fR \fIDIR\fR]
+[\fB--chunk-size\fR \fIN\fR]
+[\fB--file-workers\fR \fIN\fR]
+[\fB--modality-workers\fR \fIN\fR]
+[\fB--qr-version\fR \fIN\fR]
+[\fB--qr-ecc\fR \fIL|M|Q|H\fR]
+[\fB--verbose\fR]
+.SH DESCRIPTION
+The
+.B da_dataset_prep
+program implements Phase 1 of the Digital Alexandria pipeline.
+It crawls a source directory of files and prepares data blocks,
+recipes, and modality encodings for later archival.
+
+For each source file:
+.IP \(bu 2
+Generates a process UUID and computes the file SHA\-256.
+.IP \(bu 2
+Splits the file into 1 KiB (or smaller) blocks, computes each block’s SHA\-256, and writes the block into a deep pair\-tree directory under the
+.B --blocks-root
+directory.
+.IP \(bu 2
+If the block already exists, the program skips writing and modality generation.
+.IP \(bu 2
+For new blocks, generates additional modalities in parallel:
+    QR Code (Model 2, Version 40, ECC H),
+    DNA sequence (2\-bit to A/C/G/T),
+    Protein sequence (nibble to 16 amino subset).
+.IP \(bu 2
+Creates a JSON
+.B .recipe
+file per source file with UUID, metadata, and block sequence references.
+
+Logging is INFO to console and DEBUG to logfile under
+.B --log-dir .
+
+.SH OPTIONS
+.TP
+.BR --input-root " " \fIPATH\fR
+Input directory containing source files to process.
+Default:
+.IR /gpfs/Log/qr_proto/source .
+.TP
+.BR --blocks-root " " \fIPATH\fR
+Directory root for storing data block files in pair\-tree format.
+Default:
+.IR /gpfs/Log/qr_proto/blocks .
+.TP
+.BR --qrcode-root " " \fIPATH\fR
+Directory root for QR code modality outputs (.svg).
+Default:
+.IR /gpfs/Log/qr_proto/qrcode .
+.TP
+.BR --dna-root " " \fIPATH\fR
+Directory root for DNA modality outputs (.dna).
+Default:
+.IR /gpfs/Log/qr_proto/dna .
+.TP
+.BR --protein-root " " \fIPATH\fR
+Directory root for protein modality outputs (.protein).
+Default:
+.IR /gpfs/Log/qr_proto/protein .
+.TP
+.BR --recipe-root " " \fIPATH\fR
+Directory root for recipe JSON outputs.
+Default:
+.IR /gpfs/Log/qr_proto/recipe .
+.TP
+.BR --log-dir " " \fIDIR\fR
+Directory for log output.
+Default:
+.IR /gpfs/Log/qr_proto/log .
+.TP
+.BR --chunk-size " " \fIN\fR
+Block size in bytes (<=1024 recommended).
+Default: 1024.
+.TP
+.BR --file-workers " " \fIN\fR
+Number of source files processed in parallel.
+Default: 4.
+.TP
+.BR --modality-workers " " \fIN\fR
+Number of parallel workers for block writing and modality generation.
+Default: 8.
+.TP
+.BR --qr-version " " \fIN\fR
+QR code version (1\-40). Per spec this should remain 40.
+Default: 40.
+.TP
+.BR --qr-ecc " " \fIL|M|Q|H\fR
+QR error correction level.
+Default: H.
+.TP
+.BR --verbose
+Enable more chatty console logging (INFO). Otherwise console output is minimal.
+
+.SH OUTPUT
+.IP \(bu 2
+.B .block
+files stored in pair\-tree directories under
+.B --blocks-root .
+.IP \(bu 2
+Modality files (.svg, .dna, .protein) under their respective roots.
+.IP \(bu 2
+Per\-file JSON
+.B .recipe
+describing process UUID, file metadata, block list, and modality options.
+.IP \(bu 2
+Logs written to
+.B --log-dir .
+
+.SH EXAMPLES
+Prepare dataset from the default source tree with increased concurrency:
+.PP
+.EX
+$ python3 da_dataset_prep.py \\
+    --input-root ./source \\
+    --blocks-root ./blocks \\
+    --qrcode-root ./qrcode \\
+    --dna-root ./dna \\
+    --protein-root ./protein \\
+    --recipe-root ./recipe \\
+    --log-dir ./log \\
+    --file-workers 6 \\
+    --modality-workers 16 \\
+    --chunk-size 1024 \\
+    --qr-version 40 --qr-ecc H --verbose
+.EE
+
+.SH EXIT STATUS
+.TP
+0
+Program completed successfully.
+.TP
+1
+Fatal error occurred.
+
+.SH SEE ALSO
+.BR da_recipe_dedupe_report (1)
+
+.SH AUTHOR
+Written by Carl Watts (Digital Alexandria project).
+Licensed under Creative Commons Attribution\-ShareAlike 4.0 (CC BY\-SA 4.0).
