@@ -1,0 +1,106 @@
+.\" Manpage for da_recipe_dedupe_report
+.TH DA_RECIPE_DEDUPE_REPORT 1 "September 2025" "Digital Alexandria Tools" "User Commands"
+.SH NAME
+da_recipe_dedupe_report \- tabulate unique versus duplicate Digital Alexandria data blocks from recipe files
+.SH SYNOPSIS
+.B da_recipe_dedupe_report
+[\fB--recipe-root\fR \fIPATH\fR]
+[\fB--csv-out\fR \fIFILE\fR]
+[\fB--log-dir\fR \fIDIR\fR]
+[\fB--workers\fR \fIN\fR]
+[\fB--assume-chunk-size\fR \fIN\fR]
+[\fB--verbose\fR]
+.SH DESCRIPTION
+The
+.B da_recipe_dedupe_report
+tool scans a directory of Digital Alexandria
+.BR .recipe
+JSON files and produces statistics on data block deduplication.
+It counts how many times each block (by SHA\-256) appears, determines
+unique versus duplicate references, measures logical versus physical
+storage consumption, and computes the effective compression ratio
+achieved through deduplication.
+
+In addition to the console summary, it writes a CSV file with per\-block
+statistics for further analysis.
+
+.SH OPTIONS
+.TP
+.BR --recipe-root " " \fIPATH\fR
+Directory containing
+.BR .recipe
+files. Required.
+.TP
+.BR --csv-out " " \fIFILE\fR
+Path to write the per\-hash CSV report.
+Default:
+.IR ./block_tabulation.csv .
+.TP
+.BR --log-dir " " \fIDIR\fR
+Directory for log output.
+Default:
+.IR ./log .
+.TP
+.BR --workers " " \fIN\fR
+Number of threads to use for stat() calls on unique block files.
+Default: 8.
+.TP
+.BR --assume-chunk-size " " \fIN\fR
+If specified, assume this block size (in bytes) for any missing
+.B .block
+files instead of excluding them from byte totals.
+.TP
+.BR --verbose
+Enable more chatty console logging (INFO instead of WARN).
+
+.SH OUTPUT
+.PP
+The program produces:
+.IP \(bu 2
+A human\-readable summary to stdout, including total block references,
+unique blocks, duplicates, logical and physical byte totals,
+compression ratio, and savings percentage.
+.IP \(bu 2
+A CSV file with columns:
+.RS
+.IP
+\fBsha256,count,size_bytes,logical_bytes,physical_bytes\fR
+.RE
+.IP \(bu 2
+A debug log file in the specified
+.B --log-dir
+directory.
+
+.SH EXAMPLES
+Count deduplication stats for recipes under
+.B /gpfs/Log/qr_proto/recipe
+and write results to CSV:
+.PP
+.EX
+$ da_recipe_dedupe_report \\
+    --recipe-root /gpfs/Log/qr_proto/recipe \\
+    --csv-out /gpfs/Log/qr_proto/recipe/block_tabulation.csv \\
+    --log-dir /gpfs/Log/qr_proto/log \\
+    --workers 16 --verbose
+.EE
+.PP
+Assume 1 KiB for missing blocks:
+.PP
+.EX
+$ da_recipe_dedupe_report --recipe-root ./recipes --assume-chunk-size 1024
+.EE
+
+.SH EXIT STATUS
+.TP
+0
+Program completed successfully.
+.TP
+1
+Fatal error occurred (invalid input, unhandled exception).
+
+.SH SEE ALSO
+.BR da_dataset_prep (1)
+
+.SH AUTHOR
+Written by Carl Watts (Digital Alexandria project). Licensed under
+Creative Commons Attribution\-ShareAlike 4.0 (CC BY\-SA 4.0).
