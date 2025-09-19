@@ -1,2 +1,4 @@
 # Digital-Alexandria
-Digital Alexandria — An open-source, evergreen bit archive that stores every ≤1 KiB data block with extreme deduplication and multi-modal encodings (raw, QR, DNA, protein), designed to preserve humanity’s digital knowledge for centuries.
+Digital Alexandria is an open-source initiative to create a modern “Library of Alexandria” for the digital age. The system preserves all possible ≤1 KiB data blocks, each uniquely named by its SHA-256 hash, and stores them in a globally distributed, media-agnostic archive. Beyond raw binary blocks, Digital Alexandria encodes data into multiple durable modalities — including QR codes, DNA sequences, and protein strings — to maximize resilience against technological obsolescence.
+
+Using extreme deduplication, pair-tree storage layouts, and recipe-based file rehydration, the project aims to reduce storage overhead while ensuring long-term accessibility. The ultimate goal is an evergreen, AI-ready archive that outlasts hardware lifecycles, supports multi-site replication, and enables future generations to reconstruct humanity’s digital record regardless of the media available to them.
