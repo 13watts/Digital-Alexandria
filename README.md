@@ -27,3 +27,11 @@ Digital Alexandria is an open-source initiative to design a next-generation arch
 - Combine prepared blocks and recipes into a scalable archival system.
 - Integrate with storage backends (object stores, tape HSM, or experimental DNA/protein media).
 - Provide monitoring, reporting, and APIs for long-term preservation and retrieval.
+#
+# Why This Matters
+- Extreme Deduplication: Store every unique ≤1 KiB block once, reuse across all files.
+- Multi-modal Encodings: Preserve data in multiple forms (digital, DNA, protein, QR) to resist obsolescence.
+- Evergreen Architecture: Pair-tree + recipes allow interoperability across future storage mediums.
+- Open Standards: Licensed under CC BY-SA 4.0 so the community can extend, remix, and improve.
+
+>*Prototype tools are written in Python 3.9+, with concurrency and modular design to scale across HPC or distributed storage environments.*
