@@ -1,0 +1,169 @@
+.\" Manpage for normalize_recipes
+.TH NORMALIZE_RECIPES 1 "September 2025" "Digital Alexandria Tools" "User Commands"
+.SH NAME
+normalize_recipes \- normalize and validate Digital Alexandria recipe files
+.SH SYNOPSIS
+.B normalize_recipes.py
+\fB--input-root\fR \fIPATH\fR
+[\fB--output-root\fR \fIPATH\fR | \fB--in-place\fR]
+[\fB--validate-only\fR]
+[\fB--fix\fR]
+[\fB--data-block-path\fR \fIPATH\fR]
+[\fB--qr-path\fR \fIPATH\fR]
+[\fB--dna-path\fR \fIPATH\fR]
+[\fB--protein-path\fR \fIPATH\fR]
+[\fB--no-qr\fR]
+[\fB--no-dna\fR]
+[\fB--no-protein\fR]
+[\fB--qr-version\fR \fIN\fR]
+[\fB--qr-ecc\fR \fIL|M|Q|H\fR]
+[\fB--workers\fR \fIN\fR]
+[\fB--log-dir\fR \fIDIR\fR]
+[\fB--verbose\fR]
+[\fB--dry-run\fR]
+.SH DESCRIPTION
+The
+.B normalize_recipes
+program validates and normalizes Digital Alexandria
+.B .recipe
+JSON files into the current simplified schema.
+
+Legacy recipe files may contain redundant modality paths on each block entry.
+This tool removes duplication, leaving only the block sequence and hash per block,
+and writes modality root paths and flags once under a global
+.BR modality_options
+section.
+
+Normalization ensures that:
+.IP \(bu 2
+Each block entry contains only
+.B block_sequence_number
+and
+.B block_sha256_value .
+.IP \(bu 2
+Global modality settings (data_block, qr_code, dna_recipe, protein_recipe)
+and their root paths are stored in
+.B modality_options .
+.IP \(bu 2
+QR settings are declared once as
+.B qr_code_type
+(e.g., Model 2, Version 40, ECC H).
+.IP \(bu 2
+Paths end with a trailing slash for consistency.
+
+.SH MODES
+.TP
+.B --validate-only
+Checks recipes against the simplified schema. No files are written.
+Exit code is 0 if all are valid, 1 otherwise.
+.TP
+.B --fix
+Auto-normalizes invalid or legacy recipes. If combined with
+.B --validate-only
+it will validate and then fix recipes that fail schema checks.
+
+.SH OPTIONS
+.TP
+.BR --input-root " " \fIPATH\fR
+Root directory containing recipe files (required).
+.TP
+.BR --output-root " " \fIPATH\fR
+Directory to mirror normalized recipes into. Cannot be combined with
+.B --in-place .
+Default: create a sibling directory named
+.I <input-root>_normalized .
+.TP
+.BR --in-place
+Overwrite recipes in place.
+.TP
+.BR --data-block-path " " \fIPATH\fR
+Explicit path for block storage root. If not given, inferred from existing recipe entries.
+.TP
+.BR --qr-path " " \fIPATH\fR
+Explicit QR code modality root path.
+.TP
+.BR --dna-path " " \fIPATH\fR
+Explicit DNA modality root path.
+.TP
+.BR --protein-path " " \fIPATH\fR
+Explicit protein modality root path.
+.TP
+.BR --no-qr
+Declare QR modality disabled in outputs.
+.TP
+.BR --no-dna
+Declare DNA modality disabled in outputs.
+.TP
+.BR --no-protein
+Declare protein modality disabled in outputs.
+.TP
+.BR --qr-version " " \fIN\fR
+QR version to declare. Default: 40.
+.TP
+.BR --qr-ecc " " \fIL|M|Q|H\fR
+QR error correction level. Default: H.
+.TP
+.BR --workers " " \fIN\fR
+Number of parallel workers. Default: 8.
+.TP
+.BR --log-dir " " \fIDIR\fR
+Directory for log files. Default: ./log
+.TP
+.BR --verbose
+Enable chatty console logging (INFO). Otherwise only warnings/errors are shown.
+.TP
+.BR --dry-run
+Parse and plan but do not write changes.
+
+.SH OUTPUT
+.IP \(bu 2
+In
+.B --validate-only
+mode: only logs validation results.
+.IP \(bu 2
+In normalization/fix mode: writes simplified
+.B .recipe
+JSON files either in place or under
+.B --output-root .
+.IP \(bu 2
+Logs are always written at DEBUG level to
+.B --log-dir
+with INFO/WARN to console.
+
+.SH EXIT STATUS
+.TP
+0
+All recipes validated successfully (validate-only), or normalization completed without fatal errors.
+.TP
+1
+At least one recipe failed validation or write.
+
+.SH EXAMPLES
+Validate only:
+.EX
+$ python3 normalize_recipes.py --input-root ./recipe --validate-only --verbose
+.EE
+Normalize into a new tree:
+.EX
+$ python3 normalize_recipes.py --input-root ./recipe --output-root ./recipe_v2 --fix
+.EE
+Fix in place:
+.EX
+$ python3 normalize_recipes.py --input-root ./recipe --in-place --fix
+.EE
+Normalize with explicit modality roots and disabled DNA/Protein:
+.EX
+$ python3 normalize_recipes.py \\
+  --input-root ./recipe \\
+  --output-root ./recipe_v2 \\
+  --fix --data-block-path ./blocks/ \\
+  --qr-path ./qrcode/ --no-dna --no-protein
+.EE
+
+.SH SEE ALSO
+.BR da_dataset_prep (1),
+.BR da_recipe_dedupe_report (1)
+
+.SH AUTHOR
+Written by Carl (Digital Alexandria project).
+Licensed under Creative Commons Attribution\-ShareAlike 4.0 (CC BY-SA 4.0).
