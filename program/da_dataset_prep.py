@@ -1,26 +1,38 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Digital Alexandria — Dataset Prep Phase
-- Crawl an input directory for source files
-- For each file: assign process UUID, compute file SHA-256
-- Chunk into <=1 KiB blocks; for each block compute SHA-256, write .block in pair-tree
-- If the .block already exists, skip writing and skip modalities
-- For NEW blocks, asynchronously generate three modalities:
-    * QR Code (Model 2, Version 40, ECC H) -> .svg
-      Payload = [hash-hex ASCII (64)] + [raw block bytes (<=1024)] + [CRC32 (4 bytes, big-endian)]
-    * DNA sequence -> .dna  (2-bit -> A/C/G/T)
-    * Protein sequence -> .protein (nibble -> 16 aa subset)
-- Emit a per-source-file .recipe JSON with block sequence and paths + modality options.
-- Logging: INFO to stdout, DEBUG to file in ./log/
-NOTE: Written for Python 3.9
-License: Creative Commons Attribution-ShareAlike 4.0 (CC BY-SA 4.0)
+Digital Alexandria — Dataset Prep Phase (Updated)
+Python 3.9+
+
+What it does
+------------
+- Crawl an input directory for source files.
+- For each file:
+  * Assign a process UUID, compute file SHA-256.
+  * Chunk into <=1 KiB blocks; for each block compute SHA-256 and write
+    the .block into a deep pair-tree directory under --blocks-root.
+  * If a block already exists, skip re-writing and skip modalities.
+  * For NEW blocks (only), optionally generate modalities in parallel:
+      - QR Code (Model 2, Version 40, ECC H) as .svg
+      - DNA sequence (.dna)
+      - Protein sequence (.protein)
+  * Emit a per-file .recipe JSON with simplified entries:
+      - Each block entry includes only sequence + block_sha256_value.
+      - modality_options contains root paths and flags once.
+
+Logging
+-------
+- INFO to console, DEBUG to ./log/ by default.
+
+License
+-------
+Creative Commons Attribution-ShareAlike 4.0 (CC BY-SA 4.0)
 """
 
 from __future__ import annotations
 
 import argparse
 import concurrent.futures as cf
-import dataclasses
 import datetime as dt
 import json
 import logging
@@ -52,6 +64,7 @@ def setup_logging(log_dir: Path, verbose: bool = True) -> Path:
     logfile = log_dir / f"dataset_prep_{stamp}_{os.getpid()}.log"
 
     logger = logging.getLogger()
+    logger.handlers.clear()
     logger.setLevel(logging.DEBUG)
 
     # File handler (DEBUG)
@@ -64,7 +77,7 @@ def setup_logging(log_dir: Path, verbose: bool = True) -> Path:
     fh.setFormatter(ffmt)
     logger.addHandler(fh)
 
-    # Console handler (INFO)
+    # Console handler (INFO/WARN)
     ch = logging.StreamHandler(sys.stdout)
     ch.setLevel(logging.INFO if verbose else logging.WARNING)
     cfmt = logging.Formatter("%(levelname)s: %(message)s")
@@ -108,10 +121,14 @@ def pairtree_path(root: Path, hexhash: str, basename_with_ext: str) -> Path:
 
 
 def file_mtime_iso(path: Path) -> str:
-    # Linux doesn't have birth time reliably; use mtime as "creation" proxy
+    # Linux "creation" is unreliable; use mtime as proxy
     ts = path.stat().st_mtime
     return dt.datetime.fromtimestamp(ts).isoformat(timespec="seconds")
 
+
+def ensure_trailing_slash(p: Path) -> str:
+    s = str(p)
+    return s if s.endswith("/") else s + "/"
 
 # --------------------------- Modalities ------------------------------------
 
@@ -151,23 +168,13 @@ def write_qr_svg(qr_root: Path, hexhash: str, payload: bytes, version: int, ecc:
     # segno uses versions 1..40, error parameters 'L','M','Q','H'
     qr = segno.make(payload, version=version, error=ecc, mode="byte")
     svg_path = pairtree_path(qr_root, hexhash, f"{hexhash}.svg")
-    qr.save(svg_path, scale=1)  # raw SVG with default sizing; microscope will love the vectors
+    qr.save(svg_path, scale=1)  # vector output; microscope-friendly
     return svg_path
 
 def write_text_modality(root: Path, hexhash: str, ext: str, content: str) -> Path:
     out = pairtree_path(root, hexhash, f"{hexhash}.{ext}")
     out.write_text(content, encoding="utf-8")
     return out
-
-# ----------------------------- Data Model ----------------------------------
-
-@dataclasses.dataclass
-class BlockRecord:
-    seq: int
-    sha256: str
-    block_path: str  # .block file
-    wrote_block: bool
-    modalities: dict  # paths for svg/dna/protein when created
 
 # ------------------------------- Worker ------------------------------------
 
@@ -180,45 +187,52 @@ def process_block(
     prot_root: Path,
     qr_version: int,
     qr_ecc: str,
-    generate_modalities: bool,
-) -> BlockRecord:
+    do_qr: bool,
+    do_dna: bool,
+    do_prot: bool,
+) -> Tuple[int, str, bool]:
+    """
+    Process a single block:
+      - compute sha256
+      - write .block if absent
+      - if newly written, optionally generate QR/DNA/Protein
+    Returns: (sequence_number, block_sha256_hex, wrote_block_bool)
+    """
     b_hash = sha256(block_bytes).hexdigest()
     block_path = pairtree_path(blocks_root, b_hash, f"{b_hash}.block")
-    modalities = {}
-    if block_path.exists():
+
+    wrote_block = False
+    if not block_path.exists():
+        with open(block_path, "wb", buffering=0) as f:
+            f.write(block_bytes)
+        wrote_block = True
+        logging.debug("Wrote block #%d -> %s", seq, block_path)
+
+        # Only generate modalities if requested; otherwise keep it classy and quiet.
+        if do_qr:
+            try:
+                payload = make_qr_payload(b_hash, block_bytes)
+                write_qr_svg(qr_root, b_hash, payload, qr_version, qr_ecc)
+            except Exception:
+                logging.exception("QR generation failed for block %s", b_hash)
+        if do_dna:
+            try:
+                dna_seq = block_to_dna(block_bytes)
+                write_text_modality(dna_root, b_hash, "dna", dna_seq)
+            except Exception:
+                logging.exception("DNA generation failed for block %s", b_hash)
+        if do_prot:
+            try:
+                prot_seq = block_to_protein(block_bytes)
+                write_text_modality(prot_root, b_hash, "protein", prot_seq)
+            except Exception:
+                logging.exception("Protein generation failed for block %s", b_hash)
+    else:
         logging.debug("Block %s exists; skipping write & modalities", b_hash)
-        return BlockRecord(seq, b_hash, str(block_path), wrote_block=False, modalities=modalities)
 
-    # Write the .block
-    with open(block_path, "wb", buffering=0) as f:
-        f.write(block_bytes)
-    logging.debug("Wrote block #%d -> %s", seq, block_path)
+    return (seq, b_hash, wrote_block)
 
-    if generate_modalities:
-        try:
-            # QR
-            payload = make_qr_payload(b_hash, block_bytes)
-            svg_path = write_qr_svg(qr_root, b_hash, payload, qr_version, qr_ecc)
-            modalities["qrcode_svg"] = str(svg_path)
-
-            # DNA
-            dna_seq = block_to_dna(block_bytes)
-            dna_path = write_text_modality(dna_root, b_hash, "dna", dna_seq)
-            modalities["dna"] = str(dna_path)
-
-            # Protein
-            prot_seq = block_to_protein(block_bytes)
-            prot_path = write_text_modality(prot_root, b_hash, "protein", prot_seq)
-            modalities["protein"] = str(prot_path)
-
-            logging.debug("Modalities generated for block %s", b_hash)
-        except Exception as e:
-            # If one modality fails, we log but keep going; the .block is already durable.
-            logging.exception("Modality generation failed for block %s: %s", b_hash, e)
-
-    return BlockRecord(seq, b_hash, str(block_path), wrote_block=True, modalities=modalities)
-
-# ------------------------------- Main Flow ---------------------------------
+# ------------------------------- Per-file ----------------------------------
 
 def process_one_file(
     src_path: Path,
@@ -229,13 +243,15 @@ def process_one_file(
     prot_root: Path,
     recipe_root: Path,
     chunk_size: int,
-    file_uuid: str | None,
+    file_uuid: str,
     qr_version: int,
     qr_ecc: str,
+    do_qr: bool,
+    do_dna: bool,
+    do_prot: bool,
     modality_pool: cf.Executor,
 ) -> None:
     rel = src_path.relative_to(input_root)
-    file_uuid = file_uuid or str(uuid.uuid4())
 
     logging.info("Processing: %s (UUID=%s)", src_path, file_uuid)
 
@@ -251,75 +267,78 @@ def process_one_file(
     futures: List[cf.Future] = []
     seq = 0
     for chunk in iter_chunks(src_path, chunk_size):
-        # schedule block processing (write + modalities)
         fut = modality_pool.submit(
             process_block,
             chunk, seq,
             blocks_root, qr_root, dna_root, prot_root,
             qr_version, qr_ecc,
-            True  # generate modalities only when a new block is written (function handles skip)
+            do_qr, do_dna, do_prot
         )
         futures.append(fut)
         seq += 1
 
-    # Collect results in order of sequence
-    blocks: List[BlockRecord] = []
+    # Collect
+    results: List[Tuple[int, str, bool]] = []
     for fut in cf.as_completed(futures):
         try:
-            rec: BlockRecord = fut.result()
-            blocks.append(rec)
+            results.append(fut.result())
         except Exception as e:
             logging.exception("Block task failed for %s: %s", src_path, e)
 
-    # Re-sort by sequence (as_completed is unordered)
-    blocks.sort(key=lambda r: r.seq)
+    # Sort by sequence
+    results.sort(key=lambda t: t[0])
 
-    # Build recipe JSON path
+    # Build recipe JSON path and parent
     recipe_out = recipe_root / rel.with_suffix(rel.suffix + ".recipe")
     recipe_out.parent.mkdir(parents=True, exist_ok=True)
 
-    # Construct recipe object
+    # Construct simplified recipe object
     recipe = {
         "process_uuid": file_uuid,
         "source_file_location": str(src_path.parent),
         "source_file_name": src_path.name,
         "source_file_creation_date": created_iso,
         "source_file_sha256": file_hash,
-        "file_recipe": [
-            {
-                "block_sequence_number": r.seq,
-                "block_sha256_value": r.sha256,
-                "block_sha256_path": r.block_path,
-                # Include modality paths if they were created in this run
-                "modalities": r.modalities,
-            }
-            for r in blocks
-        ],
         "modality_options": {
             "data_block": True,
-            "qr_code": True,
-            "qr_code_type": "Model 2, Version 40",
-            "qr_code_ecc": qr_ecc,
-            "dna_recipe": True,
-            "protein_recipe": True,
+            "data_block_path": ensure_trailing_slash(blocks_root),
+            "qr_code": bool(do_qr),
+            "qr_path": ensure_trailing_slash(qr_root),
+            "qr_code_type": {
+                "qr_code_type": f"Model 2, Version {qr_version}",
+                "qr_code_ecc": qr_ecc,
+            },
+            "dna_recipe": bool(do_dna),
+            "dna_path": ensure_trailing_slash(dna_root),
+            "protein_recipe": bool(do_prot),
+            "protein_path": ensure_trailing_slash(prot_root),
         },
+        "file_recipe": [
+            {
+                "block_sequence_number": seq_i,
+                "block_sha256_value": sha_i,
+            }
+            for (seq_i, sha_i, _wrote) in results
+        ],
         "chunk_size_bytes": chunk_size,
-        "notes": "If a .block pre-existed, it was not re-written and no modalities were regenerated.",
+        "notes": "Blocks are addressed by SHA-256; modality files (if enabled) can be derived from paths + hash.",
     }
 
     recipe_out.write_text(json.dumps(recipe, indent=2), encoding="utf-8")
-    logging.info("Recipe written: %s (blocks=%d)", recipe_out, len(blocks))
+    logging.info("Recipe written: %s (blocks=%d)", recipe_out, len(results))
 
+# ------------------------------- Discovery ---------------------------------
 
 def discover_files(root: Path) -> Iterable[Path]:
     for p in root.rglob("*"):
         if p.is_file():
             yield p
 
+# ---------------------------------- CLI ------------------------------------
 
-def main():
+def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(
-        description="Digital Alexandria — Dataset Prep (Phase 1)"
+        description="Digital Alexandria — Dataset Prep (Phase 1, updated with modality switches and simplified recipe)"
     )
     ap.add_argument("--input-root", default=DEFAULT_INPUT_ROOT, type=Path)
     ap.add_argument("--blocks-root", default=DEFAULT_BLOCKS_ROOT, type=Path)
@@ -335,12 +354,21 @@ def main():
     ap.add_argument("--qr-version", type=int, default=40, help="QR version (fixed 40 per spec)")
     ap.add_argument("--qr-ecc", choices=list("LMQH"), default="H", help="QR error correction level")
 
-    ap.add_argument("--verbose", action="store_true", help="More chatty console")
-    args = ap.parse_args()
+    # New: switches to disable modalities
+    ap.add_argument("--no-qr", action="store_true", help="Disable QR code modality")
+    ap.add_argument("--no-dna", action="store_true", help="Disable DNA modality")
+    ap.add_argument("--no-protein", action="store_true", help="Disable Protein modality")
 
+    ap.add_argument("--verbose", action="store_true", help="More chatty console")
+    return ap.parse_args()
+
+# --------------------------------- Main ------------------------------------
+
+def main():
+    args = parse_args()
     logfile = setup_logging(args.log_dir, verbose=True)
 
-    # Ensure roots exist
+    # Ensure roots exist (even if modalities disabled, paths still published in recipe)
     for d in (args.blocks_root, args.qrcode_root, args.dna_root, args.protein_root, args.recipe_root):
         d.mkdir(parents=True, exist_ok=True)
 
@@ -349,9 +377,15 @@ def main():
         logging.warning("No files found under %s", args.input_root)
         return
 
-    logging.info("Starting dataset prep; files=%d | logfile=%s", len(files), logfile)
+    do_qr = not args.no_qr
+    do_dna = not args.no_dna
+    do_prot = not args.no_protein
 
-    # Dedicated pool for per-file orchestration and a shared pool for blocks+modalities
+    logging.info(
+        "Starting dataset prep; files=%d | logfile=%s | modalities: QR=%s DNA=%s PROT=%s",
+        len(files), logfile, do_qr, do_dna, do_prot
+    )
+
     with cf.ThreadPoolExecutor(max_workers=args.modality_workers, thread_name_prefix="modality") as modality_pool:
         def _handle(src: Path):
             try:
@@ -364,19 +398,21 @@ def main():
                     args.protein_root,
                     args.recipe_root,
                     args.chunk_size,
-                    None,
+                    str(uuid.uuid4()),
                     args.qr_version,
                     args.qr_ecc,
+                    do_qr,
+                    do_dna,
+                    do_prot,
                     modality_pool,
                 )
-            except Exception as e:
-                logging.exception("File task failed: %s", e)
+            except Exception:
+                logging.exception("File task failed for %s", src)
 
         with cf.ThreadPoolExecutor(max_workers=args.file_workers, thread_name_prefix="file") as file_pool:
             list(file_pool.map(_handle, files))
 
-    logging.info("All done. Consider hydrating metrics & reports before Phase 2. 🧪")
-
+    logging.info("All done. If you disabled modalities, your recipe still references the root paths for re-hydration.")
 
 if __name__ == "__main__":
     try:
