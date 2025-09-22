@@ -13,10 +13,10 @@ Digital Alexandria is an open-source initiative to design a next-generation arch
 - Generate process UUIDs and file-level SHA-256 checksums.
 - Chunk each file into ≤1 KiB blocks, compute per-block SHA-256, and store in a pair-tree structure.
 - For new blocks, generate additional modalities:
-  - QR Code (Version 40, ECC H) containing hash, block data, and CRC-32.
-  - DNA sequence (2-bit → A/C/G/T).
-  - Protein sequence (nibble → deterministic 16-amino subset).
   - Write a per-file .recipe JSON with block sequence, metadata, and modality options.
+  - (optional) QR Code (Version 40, ECC H) containing hash, block data, and CRC-32.
+  - (optional) DNA sequence (2-bit → A/C/G/T).
+  - (optional) Protein sequence (nibble → deterministic 16-amino subset).
 
 ### Phase 2 — Analysis & Deduplication Metrics
 - Crawl .recipe files to tabulate unique vs. duplicate blocks.
