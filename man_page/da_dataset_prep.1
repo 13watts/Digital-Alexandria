@@ -1,4 +1,4 @@
-.\" Manpage for da_dataset_prep
+.\" Manpage for da_dataset_prep (updated)
 .TH DA_DATASET_PREP 1 "September 2025" "Digital Alexandria Tools" "User Commands"
 .SH NAME
 da_dataset_prep \- dataset preparation phase for Digital Alexandria prototype
@@ -16,127 +16,148 @@ da_dataset_prep \- dataset preparation phase for Digital Alexandria prototype
 [\fB--modality-workers\fR \fIN\fR]
 [\fB--qr-version\fR \fIN\fR]
 [\fB--qr-ecc\fR \fIL|M|Q|H\fR]
+[\fB--no-qr\fR]
+[\fB--no-dna\fR]
+[\fB--no-protein\fR]
 [\fB--verbose\fR]
 .SH DESCRIPTION
 The
 .B da_dataset_prep
 program implements Phase 1 of the Digital Alexandria pipeline.
 It crawls a source directory of files and prepares data blocks,
-recipes, and modality encodings for later archival.
+recipes, and optional modality encodings for later archival.
 
 For each source file:
 .IP \(bu 2
 Generates a process UUID and computes the file SHA\-256.
 .IP \(bu 2
-Splits the file into 1 KiB (or smaller) blocks, computes each block’s SHA\-256, and writes the block into a deep pair\-tree directory under the
+Splits the file into 1 KiB (or smaller) blocks, computes each block’s SHA\-256, and stores it in a deep pair\-tree directory under the
 .B --blocks-root
 directory.
 .IP \(bu 2
 If the block already exists, the program skips writing and modality generation.
 .IP \(bu 2
-For new blocks, generates additional modalities in parallel:
-    QR Code (Model 2, Version 40, ECC H),
-    DNA sequence (2\-bit to A/C/G/T),
-    Protein sequence (nibble to 16 amino subset).
+For new blocks, optionally generates modalities:
+    QR Code (Version 40, ECC H),
+    DNA sequence,
+    Protein sequence.
 .IP \(bu 2
 Creates a JSON
 .B .recipe
-file per source file with UUID, metadata, and block sequence references.
+file per source file with simplified block entries (sequence + SHA\-256 value) and a global
+.B modality_options
+section specifying root paths and modality flags.
 
-Logging is INFO to console and DEBUG to logfile under
+Logging is INFO to console and DEBUG to a logfile under
 .B --log-dir .
 
 .SH OPTIONS
 .TP
 .BR --input-root " " \fIPATH\fR
-Input directory containing source files to process.
+Input directory containing source files.
 Default:
-.IR /gpfs/Log/qr_proto/source .
+.IR ./source .
 .TP
 .BR --blocks-root " " \fIPATH\fR
-Directory root for storing data block files in pair\-tree format.
+Root for storing block files in pair\-tree format.
 Default:
-.IR /gpfs/Log/qr_proto/blocks .
+.IR ./blocks .
 .TP
 .BR --qrcode-root " " \fIPATH\fR
-Directory root for QR code modality outputs (.svg).
+Root for QR code outputs (.svg).
 Default:
 .IR /gpfs/Log/qr_proto/qrcode .
 .TP
 .BR --dna-root " " \fIPATH\fR
-Directory root for DNA modality outputs (.dna).
+Root for DNA outputs (.dna).
 Default:
 .IR /gpfs/Log/qr_proto/dna .
 .TP
 .BR --protein-root " " \fIPATH\fR
-Directory root for protein modality outputs (.protein).
+Root for protein outputs (.protein).
 Default:
-.IR /gpfs/Log/qr_proto/protein .
+.IR ./protein .
 .TP
 .BR --recipe-root " " \fIPATH\fR
-Directory root for recipe JSON outputs.
+Root for recipe JSON outputs.
 Default:
-.IR /gpfs/Log/qr_proto/recipe .
+.IR ./recipe .
 .TP
 .BR --log-dir " " \fIDIR\fR
-Directory for log output.
+Directory for logs.
 Default:
-.IR /gpfs/Log/qr_proto/log .
+.IR ./log .
 .TP
 .BR --chunk-size " " \fIN\fR
 Block size in bytes (<=1024 recommended).
 Default: 1024.
 .TP
 .BR --file-workers " " \fIN\fR
-Number of source files processed in parallel.
+Number of source files processed concurrently.
 Default: 4.
 .TP
 .BR --modality-workers " " \fIN\fR
-Number of parallel workers for block writing and modality generation.
+Number of parallel workers for block write and modality generation.
 Default: 8.
 .TP
 .BR --qr-version " " \fIN\fR
-QR code version (1\-40). Per spec this should remain 40.
+QR code version (1\-40).
 Default: 40.
 .TP
 .BR --qr-ecc " " \fIL|M|Q|H\fR
 QR error correction level.
 Default: H.
 .TP
+.BR --no-qr
+Disable QR code modality.
+.TP
+.BR --no-dna
+Disable DNA modality.
+.TP
+.BR --no-protein
+Disable protein modality.
+.TP
 .BR --verbose
-Enable more chatty console logging (INFO). Otherwise console output is minimal.
+Enable more chatty console logging.
 
 .SH OUTPUT
 .IP \(bu 2
 .B .block
-files stored in pair\-tree directories under
+files stored under
 .B --blocks-root .
 .IP \(bu 2
-Modality files (.svg, .dna, .protein) under their respective roots.
+Optional modality files (.svg, .dna, .protein) under their respective roots unless disabled.
 .IP \(bu 2
 Per\-file JSON
 .B .recipe
-describing process UUID, file metadata, block list, and modality options.
+with:
+.RS
+.IP \(bu 2
+Block entries: sequence number + SHA\-256 value only.
+.IP \(bu 2
+Global
+.B modality_options
+: flags and root paths for modalities.
+.RE
 .IP \(bu 2
 Logs written to
 .B --log-dir .
 
 .SH EXAMPLES
-Prepare dataset from the default source tree with increased concurrency:
+Run with all modalities enabled:
 .PP
 .EX
 $ python3 da_dataset_prep.py \\
     --input-root ./source \\
     --blocks-root ./blocks \\
-    --qrcode-root ./qrcode \\
-    --dna-root ./dna \\
-    --protein-root ./protein \\
     --recipe-root ./recipe \\
-    --log-dir ./log \\
-    --file-workers 6 \\
-    --modality-workers 16 \\
-    --chunk-size 1024 \\
-    --qr-version 40 --qr-ecc H --verbose
+    --file-workers 6 --modality-workers 16 --chunk-size 1024 --qr-version 40 --qr-ecc H
+.EE
+.PP
+Blocks only (no QR/DNA/Protein):
+.PP
+.EX
+$ python3 da_dataset_prep.py --no-qr --no-dna --no-protein
 .EE
 
 .SH EXIT STATUS
@@ -151,5 +172,5 @@ Fatal error occurred.
 .BR da_recipe_dedupe_report (1)
 
 .SH AUTHOR
-Written by Carl Watts (Digital Alexandria project).
+Written by Carl (Digital Alexandria project).
 Licensed under Creative Commons Attribution\-ShareAlike 4.0 (CC BY\-SA 4.0).
